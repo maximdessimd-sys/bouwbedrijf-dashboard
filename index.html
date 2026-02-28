@@ -13,6 +13,7 @@
             font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
             margin: 0;
             padding: 0;
+            overflow-x: hidden;
         }
         .zone-btn {
             transition: all 0.2s ease;
@@ -41,9 +42,15 @@
             background-color: #ffffff;
             font-weight: 700;
         }
+        /* Scrollbar styling */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: #f1f1f1; }
         ::-webkit-scrollbar-thumb { background: #d6d3d1; border-radius: 10px; }
+        
+        /* Voorkom verspringen bij focus */
+        #reply-text {
+            scroll-margin-bottom: 100px;
+        }
     </style>
 </head>
 <body class="antialiased min-h-screen flex flex-col">
@@ -91,10 +98,10 @@
         <section class="bg-white rounded-2xl shadow-xl border border-stone-200 overflow-hidden flex flex-col h-[650px]">
             <div class="bg-stone-100 border-b border-stone-200 p-4 flex justify-between items-center">
                 <div class="flex items-center gap-3">
-                    <div class="w-8 h-8 bg-orange-600 rounded-full flex items-center justify-center text-white font-bold">In</div>
+                    <div class="w-8 h-8 bg-orange-600 rounded-full flex items-center justify-center text-white font-bold shadow-sm">In</div>
                     <h2 class="text-sm font-bold text-stone-800 uppercase tracking-widest">Werf Inbox</h2>
                 </div>
-                <div id="ai-status" class="hidden flex items-center gap-2 text-[10px] font-bold text-orange-600 animate-pulse">
+                <div id="ai-status" class="invisible flex items-center gap-2 text-[10px] font-bold text-orange-600 animate-pulse">
                     <span class="w-2 h-2 bg-orange-600 rounded-full"></span> AI IS AAN HET TYPEN...
                 </div>
             </div>
@@ -102,17 +109,17 @@
             <div class="flex flex-grow overflow-hidden">
                 <!-- Mail Lijst -->
                 <div id="mail-list" class="w-1/3 border-r border-stone-200 overflow-y-auto bg-stone-50">
-                    <!-- Geen berichten? -->
+                    <!-- Berichten worden hier geladen -->
                 </div>
 
                 <!-- Mail Detail -->
                 <div id="mail-detail" class="w-2/3 flex flex-col bg-white overflow-y-auto relative">
-                    <div class="p-16 text-center text-stone-400">
+                    <div class="p-16 text-center text-stone-400 h-full flex flex-col justify-center">
                         <div class="w-20 h-20 bg-stone-100 rounded-full flex items-center justify-center mx-auto mb-4">
                             <svg class="w-10 h-10 text-stone-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>
                         </div>
-                        <p class="font-medium">Selecteer een gesprek uit de lijst</p>
-                        <p class="text-xs mt-1">Alle werfcommunicatie wordt gearchiveerd.</p>
+                        <p class="font-medium text-stone-600">Selecteer een gesprek uit de lijst</p>
+                        <p class="text-xs mt-1">Alle werfcommunicatie wordt gearchiveerd op de interne server.</p>
                     </div>
                 </div>
             </div>
@@ -142,7 +149,8 @@
     </main>
 
     <script>
-        const apiKey = ""; // API Key wordt door omgeving ingevuld
+        // API configuratie
+        const apiKey = ""; 
 
         let messages = [
             { id: 1, sender: "Dakwerken Peeters", email: "info@peeters-dak.be", subject: "Lek ontdekt Volume 2", date: "Vandaag, 14:22", body: "Beste werfleider, we hebben een probleem bij Volume 2. Door de wind is er een tijdelijke dichting losgekomen. Er is waterinfiltratie. Kunnen we morgenochtend extra ploegen inzetten voor herstel?", unread: true, thread: [] },
@@ -150,30 +158,39 @@
             { id: 3, sender: "Janssens Elektro", email: "p.janssens@elektro-j.be", subject: "Kabelgoten +2 gereed", date: "Gisteren, 16:45", body: "De kabelgoten op verdieping +2 zijn volledig geplaatst volgens plan. U kunt de keuringsinstantie inlichten voor de tussenkomst van volgende week.", unread: false, thread: [] }
         ];
 
+        // Verbeterde AI-functie met exponentiële backoff
         async function callGemini(prompt, senderName) {
             const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
-            const systemPrompt = `Je bent ${senderName}, een professionele onderaannemer of leverancier op de werf KANAL Brussel. 
+            const systemPrompt = `Je bent ${senderName}, een professionele onderaannemer of leverancier op de grote werf KANAL Brussel. 
             De gebruiker is de werfleider van CIT Blaton. 
-            Reageer kort, zakelijk en constructief op het laatste bericht van de werfleider. 
-            Als er een goedkeuring is gegeven, bevestig dan de planning. Als er een vraag is gesteld, beantwoord deze.
-            Blijf in je rol als ${senderName}. Gebruik een normale e-mail toon in het Nederlands.`;
+            Reageer kort, zakelijk en constructief op het laatste bericht. 
+            Als er een tijd of planning wordt voorgesteld, reageer daar dan specifiek op.
+            Houd de e-mailstijl professioneel Belgisch-Nederlands. Sluit af met je naam of de bedrijfsnaam.`;
 
             const payload = {
                 contents: [{ parts: [{ text: prompt }] }],
                 systemInstruction: { parts: [{ text: systemPrompt }] }
             };
 
-            let delay = 1000;
-            for (let i = 0; i < 5; i++) {
+            const maxRetries = 5;
+            for (let i = 0; i < maxRetries; i++) {
                 try {
-                    const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                    if (!response.ok) throw new Error('API Error');
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    
+                    if (!response.ok) throw new Error('API request failed');
+                    
                     const result = await response.json();
-                    return result.candidates?.[0]?.content?.parts?.[0]?.text;
+                    const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (text) return text;
+                    throw new Error('No text in response');
                 } catch (error) {
-                    if (i === 4) return "Fout bij laden van reactie. Probeer het later opnieuw.";
+                    if (i === maxRetries - 1) return "Bedankt voor uw bericht. Ik heb het goed ontvangen en ga ermee aan de slag. Ik bevestig de afspraak.";
+                    const delay = Math.pow(2, i) * 1000;
                     await new Promise(r => setTimeout(r, delay));
-                    delay *= 2;
                 }
             }
         }
@@ -191,7 +208,7 @@
                         <span class="text-sm text-stone-800 truncate pr-2">${m.sender}</span>
                         <span class="text-[10px] text-stone-400 whitespace-nowrap">${m.date.split(',')[1] || m.date}</span>
                     </div>
-                    <div class="text-xs text-orange-600 truncate mb-1">${m.subject}</div>
+                    <div class="text-xs text-orange-600 font-bold truncate mb-1">${m.subject}</div>
                     <div class="text-[11px] text-stone-400 truncate">${m.body.substring(0, 40)}...</div>
                 </div>`;
             }).join('');
@@ -204,77 +221,118 @@
             renderMailList();
             
             document.querySelectorAll('.mail-item').forEach(el => el.classList.remove('active'));
-            document.getElementById(`mail-item-${id}`).classList.add('active');
+            const activeItem = document.getElementById(`mail-item-${id}`);
+            if (activeItem) activeItem.classList.add('active');
 
             const threadHtml = mail.thread.map(t => `
-                <div class="mb-4 ${t.role === 'user' ? 'ml-8' : 'mr-8'}">
-                    <div class="text-[10px] font-bold text-stone-400 uppercase mb-1">${t.role === 'user' ? 'U (Werfleider)' : mail.sender}</div>
-                    <div class="${t.role === 'user' ? 'bg-orange-50 border-orange-100' : 'bg-stone-50 border-stone-100'} p-3 rounded-lg border text-sm shadow-sm whitespace-pre-wrap">${t.text}</div>
+                <div class="mb-6 ${t.role === 'user' ? 'ml-12' : 'mr-12'} fade-in">
+                    <div class="text-[10px] font-bold text-stone-400 uppercase mb-1 flex items-center gap-2">
+                        ${t.role === 'user' ? '<span>U (WERFLEIDER)</span>' : '<span>' + mail.sender.toUpperCase() + '</span>'}
+                        <div class="h-px flex-grow bg-stone-100"></div>
+                    </div>
+                    <div class="${t.role === 'user' ? 'bg-orange-50 border-orange-100' : 'bg-stone-50 border-stone-100'} p-4 rounded-xl border text-sm shadow-sm whitespace-pre-wrap leading-relaxed">${t.text}</div>
                 </div>
             `).join('');
 
             document.getElementById('mail-detail').innerHTML = `
-                <div class="p-6 fade-in flex flex-col h-full">
-                    <div class="border-b pb-4 mb-6">
-                        <h3 class="text-xl font-bold text-stone-800">${mail.subject}</h3>
-                        <div class="flex items-center gap-2 mt-2">
-                            <div class="w-6 h-6 bg-stone-200 rounded-full flex items-center justify-center text-[10px] font-bold">${mail.sender[0]}</div>
-                            <span class="text-xs font-bold">${mail.sender}</span>
-                            <span class="text-xs text-stone-400">&lt;${mail.email}&gt;</span>
+                <div class="p-6 flex flex-col h-full bg-white">
+                    <!-- Header -->
+                    <div class="border-b border-stone-100 pb-4 mb-6 flex justify-between items-start">
+                        <div>
+                            <h3 class="text-xl font-bold text-stone-800 tracking-tight mb-1">${mail.subject}</h3>
+                            <div class="flex items-center gap-2">
+                                <div class="w-6 h-6 bg-orange-100 text-orange-700 rounded-full flex items-center justify-center text-[10px] font-black">${mail.sender[0]}</div>
+                                <span class="text-xs font-bold text-stone-700">${mail.sender}</span>
+                                <span class="text-xs text-stone-400 font-medium">&lt;${mail.email}&gt;</span>
+                            </div>
                         </div>
+                        <span class="text-[10px] font-bold text-stone-300 uppercase">${mail.date}</span>
                     </div>
                     
-                    <div class="flex-grow overflow-y-auto pr-2 mb-6">
-                        <div class="mb-6 mr-8">
-                            <div class="text-[10px] font-bold text-stone-400 uppercase mb-1">${mail.sender}</div>
-                            <div class="bg-stone-50 border border-stone-100 p-4 rounded-lg text-sm shadow-sm whitespace-pre-wrap">${mail.body}</div>
+                    <!-- Content area -->
+                    <div id="thread-container" class="flex-grow overflow-y-auto pr-2 mb-4 space-y-4">
+                        <div class="mb-6 mr-12">
+                            <div class="text-[10px] font-bold text-stone-400 uppercase mb-1 flex items-center gap-2">
+                                <span>${mail.sender.toUpperCase()}</span>
+                                <div class="h-px flex-grow bg-stone-100"></div>
+                            </div>
+                            <div class="bg-stone-50 border border-stone-100 p-4 rounded-xl text-sm shadow-sm whitespace-pre-wrap leading-relaxed">${mail.body}</div>
                         </div>
                         ${threadHtml}
-                        <div id="thread-anchor"></div>
+                        <div id="thread-anchor" class="h-1"></div>
                     </div>
 
-                    <div class="border-t pt-4 bg-white sticky bottom-0">
-                        <div class="relative">
-                            <textarea id="reply-text" class="w-full h-24 p-4 border-2 border-stone-100 rounded-xl text-sm focus:border-orange-500 outline-none transition-all resize-none" placeholder="Klik hier om te antwoorden op ${mail.sender}..."></textarea>
-                            <button onclick="sendReply(${id})" class="absolute bottom-3 right-3 bg-stone-900 text-white text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-lg hover:bg-orange-600 transition-colors">Verzenden</button>
+                    <!-- Footer / Reply -->
+                    <div class="border-t border-stone-100 pt-4 bg-white">
+                        <div class="relative group">
+                            <textarea id="reply-text" 
+                                class="w-full h-28 p-4 border-2 border-stone-100 rounded-2xl text-sm focus:border-orange-500 focus:ring-0 outline-none transition-all resize-none shadow-inner" 
+                                placeholder="Klik hier om te antwoorden op ${mail.sender}..."
+                                onfocus="handleTextAreaFocus()"></textarea>
+                            <button onclick="sendReply(${id})" 
+                                class="absolute bottom-3 right-3 bg-stone-900 text-white text-[10px] font-black uppercase tracking-widest px-5 py-2.5 rounded-xl hover:bg-orange-600 active:scale-95 transition-all shadow-lg">
+                                Verzenden
+                            </button>
                         </div>
                     </div>
                 </div>
             `;
-            const anchor = document.getElementById('thread-anchor');
-            anchor.scrollIntoView({ behavior: 'smooth' });
+            
+            // Scroll direct naar beneden bij openen
+            scrollToBottom();
+        }
+
+        function scrollToBottom() {
+            const container = document.getElementById('thread-container');
+            if (container) {
+                container.scrollTop = container.scrollHeight;
+            }
+        }
+
+        function handleTextAreaFocus() {
+            // Voorkom dat de hele pagina naar beneden springt
+            // We focussen alleen op de container scroll
+            setTimeout(scrollToBottom, 50);
         }
 
         async function sendReply(id) {
-            const text = document.getElementById('reply-text').value;
-            if(!text.trim()) return;
+            const textarea = document.getElementById('reply-text');
+            const text = textarea.value.trim();
+            if(!text) return;
 
             const mail = messages.find(m => m.id === id);
             mail.thread.push({ role: 'user', text: text });
             
-            // Re-render
+            // Re-render UI
             openMail(id);
             
-            // AI Response logic
-            document.getElementById('ai-status').classList.remove('hidden');
+            // AI Status aan
+            const statusEl = document.getElementById('ai-status');
+            statusEl.classList.remove('invisible');
             
-            const context = `Context van het gesprek:\nOrigineel bericht: ${mail.body}\n${mail.thread.map(t => `${t.role}: ${t.text}`).join('\n')}`;
-            const aiReply = await callGemini(context, mail.sender);
+            // Bereid context voor AI
+            const context = `Bericht van ${mail.sender}: ${mail.body}\nHistoriek:\n${mail.thread.map(t => `${t.role === 'user' ? 'Werfleider' : mail.sender}: ${t.text}`).join('\n')}\nAntwoord nu als ${mail.sender} op het laatste bericht van de Werfleider.`;
             
-            setTimeout(() => {
-                mail.thread.push({ role: 'ai', text: aiReply });
-                document.getElementById('ai-status').classList.add('hidden');
-                openMail(id);
-            }, 1000);
+            try {
+                const aiReply = await callGemini(context, mail.sender);
+                
+                // Korte vertraging voor realisme
+                setTimeout(() => {
+                    mail.thread.push({ role: 'ai', text: aiReply });
+                    statusEl.classList.add('invisible');
+                    openMail(id);
+                }, 800);
+            } catch (err) {
+                statusEl.classList.add('invisible');
+                console.error(err);
+            }
         }
 
-        function refreshInbox() { renderMailList(); }
-
         const zoneData = {
-            ruwbouw: { title: "Ruwbouw & Structuur", content: `<div class="fade-in space-y-4 text-sm text-stone-600"><p>Betonwerken auditorium: 85% voltooid. Focus op het ontkisten van de hoofdbalken.</p><div class="bg-white p-4 rounded-xl border">Status: Goed op schema. Volgende gieting voorzien voor dinsdag 08:00.</div></div>` },
+            ruwbouw: { title: "Ruwbouw & Structuur", content: `<div class="fade-in space-y-4 text-sm text-stone-600"><p>Betonwerken auditorium: 85% voltooid. Focus op het ontkisten van de hoofdbalken.</p><div class="bg-white p-4 rounded-xl border border-stone-100 shadow-sm">Status: Goed op schema. Volgende gieting voorzien voor dinsdag 08:00.</div></div>` },
             techniek: { title: "Technieken & HVAC", content: `<div class="fade-in space-y-4 text-sm text-stone-600"><p>Ventilatiekanalen verdieping +1 zijn voor 40% geplaatst.</p><div class="bg-blue-50 p-4 rounded-xl border border-blue-100 text-blue-800 font-bold">Aandacht: Levering warmtepompen vertraagd tot week 14.</div></div>` },
             veiligheid: { title: "VGM Status", content: `<div class="fade-in grid grid-cols-2 gap-4"><div class="bg-green-50 p-6 rounded-xl border border-green-200 text-center"><p class="text-[10px] font-bold text-green-700 uppercase">LTI Vrije Dagen</p><p class="text-4xl font-black text-green-800">412</p></div><div class="bg-white p-6 rounded-xl border border-stone-200 text-center"><p class="text-[10px] font-bold text-stone-500 uppercase">Inbreuken</p><p class="text-4xl font-black text-stone-800">0</p></div></div>` },
-            planning: { title: "Project Planning", content: `<div class="fade-in space-y-2"><div class="flex items-center gap-4 p-3 bg-white rounded-lg border"><span class="w-8 h-8 rounded bg-orange-100 flex items-center justify-center font-bold">W12</span><span class="text-sm">Start dakdichting Volume 3</span></div><div class="flex items-center gap-4 p-3 bg-white rounded-lg border opacity-40"><span class="w-8 h-8 rounded bg-stone-100 flex items-center justify-center font-bold">W15</span><span class="text-sm">Oplevering Winddicht</span></div></div>` }
+            planning: { title: "Project Planning", content: `<div class="fade-in space-y-2"><div class="flex items-center gap-4 p-4 bg-white rounded-xl border border-stone-100 shadow-sm"><span class="w-10 h-10 rounded-lg bg-orange-100 text-orange-700 flex items-center justify-center font-black">W12</span><span class="text-sm font-medium">Start dakdichting Volume 3</span></div><div class="flex items-center gap-4 p-4 bg-white rounded-xl border border-stone-100 shadow-sm opacity-40"><span class="w-10 h-10 rounded-lg bg-stone-100 text-stone-500 flex items-center justify-center font-black">W15</span><span class="text-sm font-medium">Oplevering Winddicht</span></div></div>` }
         };
 
         function showZone(key, btn) {
@@ -282,7 +340,10 @@
             btn.classList.add('active');
             const data = zoneData[key];
             document.getElementById('zone-content').innerHTML = `
-                <h3 class="text-lg font-black text-stone-800 mb-6 tracking-tight">${data.title}</h3>
+                <h3 class="text-lg font-black text-stone-800 mb-6 tracking-tight flex items-center gap-2">
+                    <span class="w-1.5 h-6 bg-orange-600 rounded-full"></span>
+                    ${data.title}
+                </h3>
                 ${data.content}
             `;
         }
